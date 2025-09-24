@@ -18,50 +18,22 @@ export default function Home() {
   const analyzeWithClaude = useCallback(async (base64Image) => {
     const imageData = base64Image.split(',')[1];
     
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('/api/analyze', {
       method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: "claude-3-sonnet-20240229",
-        max_tokens: 500,
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Bu yiyeceği kesin olarak tanımla. Türk mutfağına odaklan:
-
-YEMEKLER: Adana kebab, şiş kebab, döner, dürüm, iskender, lahmacun, çorba, pilav, salata
-
-JSON formatında döndür:
-{
-  "detectedFood": "tam yemek adı",
-  "calories": kalori_sayısı,
-  "confidence": güven_yüzdesi,
-  "protein": protein_gram,
-  "carbs": karbonhidrat_gram,
-  "fat": yağ_gram,
-  "advice": "beslenme önerisi"
-}`
-            },
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/jpeg",
-                data: imageData
-              }
-            }
-          ]
-        }]
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageData, apiKey })
     });
 
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+
     const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
     const content = data.content[0].text;
     const jsonMatch = content.match(/\{[\s\S]*?\}/);
     
@@ -72,15 +44,15 @@ JSON formatında döndür:
         confidence: parsed.confidence,
         nutrition: { 
           calories: parsed.calories, 
-          protein: parsed.protein || 15, 
-          carbs: parsed.carbs || 30, 
-          fat: parsed.fat || 10 
+          protein: parsed.protein, 
+          carbs: parsed.carbs, 
+          fat: parsed.fat 
         },
-        aiAdvice: parsed.advice || 'Claude Vision analizi tamamlandı.'
+        aiAdvice: parsed.advice
       };
     }
     
-    throw new Error('Analiz hatası');
+    throw new Error('Analiz sonucu okunamadı');
   }, [apiKey]);
 
   const handleImageUpload = (e) => {
@@ -103,10 +75,12 @@ JSON formatında döndür:
         setAnalysisProgress(100);
         setDailyCalories(prev => prev + result.nutrition.calories);
       } catch (error) {
+        console.error('Analiz hatası:', error);
         setAnalysisResult({
           detectedFood: 'Analiz Hatası',
-          nutrition: { calories: 0 },
-          aiAdvice: error.message
+          nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+          aiAdvice: `Hata: ${error.message}`,
+          confidence: 0
         });
         setAnalysisProgress(100);
       }
@@ -348,7 +322,6 @@ JSON formatında döndür:
           <p>Claude ile Akıllı Beslenme Asistanı</p>
         </div>
 
-        {/* Daily Calories */}
         <div className="card">
           <div className="calories-header">
             <div className="calories-big">{dailyCalories}</div>
@@ -356,7 +329,6 @@ JSON formatında döndür:
           </div>
         </div>
 
-        {/* API Status */}
         <div className="card">
           <div className="status">
             <div className="status-indicator">
@@ -402,7 +374,6 @@ JSON formatında döndür:
           )}
         </div>
 
-        {/* Analysis Area */}
         <div className="card">
           {selectedImage ? (
             <div>
@@ -422,7 +393,7 @@ JSON formatında döndür:
                 <div className="result">
                   <div className="result-header">
                     <h3>{analysisResult.detectedFood}</h3>
-                    <div>Güven: %{analysisResult.confidence || 80}</div>
+                    <div>Güven: %{analysisResult.confidence || 0}</div>
                   </div>
                   
                   <div className="stats-grid">
