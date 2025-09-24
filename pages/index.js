@@ -15,6 +15,25 @@ export default function Home() {
     if (savedKey) setApiKey(savedKey);
   }, []);
 
+  const compressImage = (file, maxWidth = 800, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      img.onload = () => {
+        const ratio = Math.min(maxWidth / img.width, maxWidth / img.height);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const analyzeWithClaude = useCallback(async (base64Image) => {
     const imageData = base64Image.split(',')[1];
     
@@ -25,7 +44,8 @@ export default function Home() {
     });
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const errorData = await response.json();
+      throw new Error(errorData.error || `HTTP ${response.status}`);
     }
 
     const data = await response.json();
@@ -52,16 +72,18 @@ export default function Home() {
       };
     }
     
-    throw new Error('Analiz sonucu okunamadı');
+    throw new Error('Claude yanıtı işlenemedi');
   }, [apiKey]);
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      setSelectedImage(e.target.result);
+    try {
+      // Görsel sıkıştır
+      const compressedImage = await compressImage(file, 800, 0.7);
+      
+      setSelectedImage(compressedImage);
       setIsAnalyzing(true);
       setAnalysisProgress(0);
 
@@ -69,27 +91,26 @@ export default function Home() {
         setAnalysisProgress(p => p < 90 ? p + Math.random() * 15 + 5 : p);
       }, 200);
 
-      try {
-        const result = await analyzeWithClaude(e.target.result);
-        setAnalysisResult(result);
-        setAnalysisProgress(100);
-        setDailyCalories(prev => prev + result.nutrition.calories);
-      } catch (error) {
-        console.error('Analiz hatası:', error);
-        setAnalysisResult({
-          detectedFood: 'Analiz Hatası',
-          nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
-          aiAdvice: `Hata: ${error.message}`,
-          confidence: 0
-        });
-        setAnalysisProgress(100);
-      }
-
+      const result = await analyzeWithClaude(compressedImage);
+      setAnalysisResult(result);
+      setAnalysisProgress(100);
+      setDailyCalories(prev => prev + result.nutrition.calories);
+      
       clearInterval(interval);
       setIsAnalyzing(false);
       setTimeout(() => setAnalysisProgress(0), 1000);
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Analiz hatası:', error);
+      setAnalysisResult({
+        detectedFood: 'Analiz Hatası',
+        nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        aiAdvice: `Hata: ${error.message}`,
+        confidence: 0
+      });
+      setAnalysisProgress(100);
+      setIsAnalyzing(false);
+      setTimeout(() => setAnalysisProgress(0), 1000);
+    }
   };
 
   return (
@@ -383,7 +404,7 @@ export default function Home() {
                 <div className="progress-container">
                   <div className="spinner"></div>
                   <h3>Claude analiz ediyor...</h3>
-                  <p>Görsel işleniyor ve yiyecek tanınıyor</p>
+                  <p>Görsel sıkıştırılıyor ve işleniyor</p>
                   <div className="progress">
                     <div className="progress-bar" style={{ width: `${analysisProgress}%` }}></div>
                   </div>
